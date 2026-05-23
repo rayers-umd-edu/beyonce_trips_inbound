@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <title>Beyonce Concert Routes Into Mercedes Benz Stadium - Merged by Trip Count</title>
 <style>
   html, body { height: 100%; width: 100%; margin: 0; font-family: Arial, Helvetica, sans-serif; overflow: hidden; background: #111; }
-  #mapCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: grab; background: #111; }
+  #mapCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: grab; background: #111; touch-action: none; -ms-touch-action: none; }
   #mapCanvas.dragging { cursor: grabbing; }
   .title-box, .legend, .help, .slider-panel, .basemap-note { position: absolute; z-index: 10; background: rgba(255,255,255,0.94); box-shadow: 0 2px 14px rgba(0,0,0,0.30); border-radius: 10px; }
   .title-box { left: 14px; top: 14px; max-width: 450px; padding: 12px 14px; }
@@ -34,7 +34,7 @@
 <canvas id="mapCanvas"></canvas>
 <div class="title-box"><h1>Beyonce Concert Routes</h1><p>Trips into Mercedes Benz Stadium on July 14, 5:00 PM-9:00 PM. For faster rendering, route geometries are <b>merged by trip-count value</b>; hover summaries show the top 3 road names in each merged group.</p></div>
 <div class="legend"><h3>Trips per Merged Route</h3><div class='legend-row'><span class='swatch' style='background:#00B4D8'></span><span>1–5 trips</span></div><div class='legend-row'><span class='swatch' style='background:#0077B6'></span><span>6–10 trips</span></div><div class='legend-row'><span class='swatch' style='background:#8338EC'></span><span>11–14 trips</span></div><div class='legend-row'><span class='swatch' style='background:#FF006E'></span><span>15–19 trips</span></div><div class='legend-row'><span class='swatch' style='background:#FB5607'></span><span>20–28 trips</span></div></div>
-<div class="help">Drag to pan. Mouse wheel or trackpad to zoom. Hover over routes for merged-group details.</div>
+<div class="help">Drag to pan. Mouse wheel/trackpad or pinch to zoom. Hover or tap routes for details.</div>
 <div class="basemap-note">Satellite imagery: Esri World Imagery + softened Esri reference labels</div>
 <div class="slider-panel"><label for="tripSlider">Show routes with at least <span><span id="tripValue" class="class-value">1</span> trip<span id="plusLabel"></span></span></label><input id="tripSlider" type="range" min="1" max="15" value="1" step="1"><div class="slider-notes"><span>All routes, 1+ trip</span><span>High-use routes, 15+ trips</span></div></div>
 <div id="tooltip"></div>
@@ -307,10 +307,80 @@ function showTooltip(evt) {
   tooltip.style.display = 'block';
 }
 function escapeHtml(s) { return s.replace(/[&<>\"']/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]; }); }
+function touchDistance(t1, t2) {
+  var dx = t2.clientX - t1.clientX;
+  var dy = t2.clientY - t1.clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+function touchMidpoint(t1, t2) {
+  return {x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2};
+}
+var pinchLastDistance = 0;
+var touchStartX = 0, touchStartY = 0, touchMoved = false;
 canvas.addEventListener('mousedown', function(e){ dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.className = 'dragging'; });
 window.addEventListener('mouseup', function(){ dragging = false; canvas.className = ''; });
 window.addEventListener('mousemove', function(e){ if (dragging) { offsetX += e.clientX - lastX; offsetY += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; tooltip.style.display = 'none'; draw(); } else { showTooltip(e); } });
 canvas.addEventListener('wheel', function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.18 : 0.85); }, {passive:false});
+canvas.addEventListener('touchstart', function(e){
+  tooltip.style.display = 'none';
+  if (e.touches.length === 1) {
+    dragging = true;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
+    touchStartX = lastX;
+    touchStartY = lastY;
+    touchMoved = false;
+    pinchLastDistance = 0;
+    canvas.className = 'dragging';
+  } else if (e.touches.length >= 2) {
+    dragging = false;
+    pinchLastDistance = touchDistance(e.touches[0], e.touches[1]);
+    canvas.className = 'dragging';
+  }
+  e.preventDefault();
+}, {passive:false});
+canvas.addEventListener('touchmove', function(e){
+  if (e.touches.length === 1 && dragging) {
+    var t = e.touches[0];
+    var dx = t.clientX - lastX;
+    var dy = t.clientY - lastY;
+    offsetX += dx;
+    offsetY += dy;
+    lastX = t.clientX;
+    lastY = t.clientY;
+    if (Math.abs(t.clientX - touchStartX) > 6 || Math.abs(t.clientY - touchStartY) > 6) touchMoved = true;
+    draw();
+  } else if (e.touches.length >= 2) {
+    var dist = touchDistance(e.touches[0], e.touches[1]);
+    if (pinchLastDistance > 0 && dist > 0) {
+      var mid = touchMidpoint(e.touches[0], e.touches[1]);
+      zoomAt(mid.x, mid.y, dist / pinchLastDistance);
+    }
+    pinchLastDistance = dist;
+    touchMoved = true;
+  }
+  tooltip.style.display = 'none';
+  e.preventDefault();
+}, {passive:false});
+canvas.addEventListener('touchend', function(e){
+  if (e.touches.length === 1) {
+    dragging = true;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
+    touchStartX = lastX;
+    touchStartY = lastY;
+    pinchLastDistance = 0;
+  } else {
+    dragging = false;
+    pinchLastDistance = 0;
+    canvas.className = '';
+  }
+  if (!touchMoved && e.changedTouches && e.changedTouches.length) {
+    showTooltip({clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY});
+  }
+  e.preventDefault();
+}, {passive:false});
+canvas.addEventListener('touchcancel', function(e){ dragging = false; pinchLastDistance = 0; canvas.className = ''; tooltip.style.display = 'none'; e.preventDefault(); }, {passive:false});
 slider.addEventListener('input', function(){ minTrips = Number(slider.value); tripValue.innerHTML = String(minTrips); plusLabel.innerHTML = (minTrips === sliderMax ? '+' : ''); draw(); });
 window.addEventListener('resize', resize);
 bounds = computeBounds();
